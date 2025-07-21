@@ -1,0 +1,12 @@
+run = "bash start-replit.sh"
+language = "python3"
+entrypoint = "start-replit.sh"
+
+[nix]
+channel = "stable-22_11"
+
+[deployment]
+run = ["sh", "-c", "bash start-replit.sh"]
+
+[env]
+PYTHONPATH = "$PYTHONPATH:/home/runner/$REPL_SLUG/backend" 

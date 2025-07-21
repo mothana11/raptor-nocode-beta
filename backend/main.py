@@ -49,6 +49,12 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Mount static files for serving uploaded files
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# Mount the built React frontend (for Replit deployment)
+import pathlib
+frontend_dist_path = pathlib.Path(__file__).parent.parent / "frontend" / "dist"
+if frontend_dist_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist_path), html=True), name="static")
+
 # Initialize OpenAI client for image processing
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
