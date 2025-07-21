@@ -19,14 +19,26 @@ import base64
 import json
 from openai import OpenAI
 
-from backend.workflow import build_travel_workflow
-from backend.auth import (
-    init_auth_tables, UserCreate, UserLogin, UserResponse, OnboardingData,
-    create_user, authenticate_user, create_access_token, get_current_user_from_token,
-    get_or_create_anonymous_user, create_session, log_user_interaction,
-    log_analytics_event, learn_from_user_behavior, get_user_learning_profile,
-    security
-)
+try:
+    # For Railway deployment (running from project root)
+    from backend.workflow import build_travel_workflow
+    from backend.auth import (
+        init_auth_tables, UserCreate, UserLogin, UserResponse, OnboardingData,
+        create_user, authenticate_user, create_access_token, get_current_user_from_token,
+        get_or_create_anonymous_user, create_session, log_user_interaction,
+        log_analytics_event, learn_from_user_behavior, get_user_learning_profile,
+        security
+    )
+except ImportError:
+    # For local development (running from backend directory)
+    from workflow import build_travel_workflow
+    from auth import (
+        init_auth_tables, UserCreate, UserLogin, UserResponse, OnboardingData,
+        create_user, authenticate_user, create_access_token, get_current_user_from_token,
+        get_or_create_anonymous_user, create_session, log_user_interaction,
+        log_analytics_event, learn_from_user_behavior, get_user_learning_profile,
+        security
+    )
 
 # Load environment variables
 load_dotenv()
