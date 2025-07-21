@@ -6,7 +6,7 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import create_react_agent, ToolNode, tools_condition
 
-from mcp_tools import ALL_TOOLS
+from backend.mcp_tools import ALL_TOOLS
 
 class AgentState(TypedDict):
     messages: List[BaseMessage]
