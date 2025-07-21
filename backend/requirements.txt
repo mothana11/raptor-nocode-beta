@@ -1,0 +1,21 @@
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+langchain==0.3.26
+langchain-openai==0.3.27
+langgraph==0.5.2
+python-dotenv==1.0.1 
+requests==2.31.0
+python-multipart==0.0.6
+openai>=1.86.0,<2.0.0
+faker==37.4.2
+# Authentication and Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+# Session Management
+itsdangerous==2.1.2
+# Email validation
+email-validator==2.1.0
+# Analytics and Data Collection
+sqlalchemy==2.0.25
+# Additional utilities - Updated to compatible version
+pydantic[email]>=2.7.4,<3.0.0
