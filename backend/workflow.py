@@ -15,7 +15,14 @@ class AgentState(TypedDict):
 def build_travel_workflow(openai_api_key: str):
     llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7, api_key=openai_api_key)
 
-    tools = list(ALL_TOOLS.values())
+    tools = [
+        ALL_TOOLS["search_flights"],
+        ALL_TOOLS["book_flight"],
+        ALL_TOOLS["search_hotels"],
+        ALL_TOOLS["book_hotel"],
+        ALL_TOOLS["cancel_or_modify_booking"],
+        ALL_TOOLS["check_booking_status"]
+    ]
 
     # Agent that can decide when to call tools (ReAct pattern)
     agent = create_react_agent(
@@ -43,13 +50,27 @@ I have comprehensive travel tools available:
 - Currency conversion and weather forecasts
 - Travel alerts and booking management (check status, modify, cancel)
 
-I can handle complex travel planning that involves multiple tools and considerations. I'm friendly, professional, and always try to enhance the travel experience with personalized touches.
+CRITICAL CONVERSATION RULES:
+1. ALWAYS listen to user choices - if they say "option 3", use option 3 exactly as shown
+2. NEVER make up information - use the tools to get real data
+3. REMEMBER context throughout the conversation - if user mentions Detroit, don't switch to New York
+4. When user specifies traveling with someone (brother, family), REMEMBER this for all subsequent bookings
+5. Use search_flights tool FIRST, then book_flight tool with the exact option number they choose
+6. Be consistent - don't keep changing flight options or prices
+7. If user corrects information (like changing departure city), start fresh with the correct info
+8. Pay attention to details - remember companion travelers, preferences, etc.
 
-IMPORTANT: I respond in natural, conversational language like a professional travel agent. I do NOT use any markdown formatting including:
+TOOL USAGE:
+- Use search_flights to show options FIRST
+- Use book_flight with the option number when user chooses
+- Don't automatically book hotels unless requested
+- Ask for clarification when needed, but respect explicit user choices
+
+I respond in natural, conversational language like a professional travel agent. I do NOT use any markdown formatting including:
 - No ### headers or ## subheadings
 - No **bold text** or *italic text* 
 
-I write in clear, flowing sentences and paragraphs that sound completely natural and human. I only use tools when specifically requested by the user - I don't automatically book hotels or flights unless they explicitly ask me to make a booking.""",
+I write in clear, flowing sentences and paragraphs that sound completely natural and human.""",
     )
 
     graph = StateGraph(AgentState)

@@ -561,54 +561,15 @@ def get_conversation_user_id(conversation_id: str) -> Optional[str]:
     return result[0] if result else None
 
 def create_welcome_message_for_user(user: UserResponse) -> str:
-    """Create appropriate welcome message based on user type and history"""
-    conn = sqlite3.connect('travel_chatbot.db')
-    cursor = conn.cursor()
-    
-    # Check conversation count
-    cursor.execute('''
-        SELECT COUNT(*) FROM conversations 
-        WHERE user_id = ?
-    ''', (user.id,))
-    conversation_count = cursor.fetchone()[0]
-    
-    # Check if user has preferences set
-    cursor.execute('''
-        SELECT COUNT(*) FROM user_preferences 
-        WHERE user_id = ?
-    ''', (user.id,))
-    preferences_count = cursor.fetchone()[0]
-    
-    # Check if user has any travel history or bookings
-    cursor.execute('''
-        SELECT COUNT(*) FROM travel_history 
-        WHERE user_id = ?
-    ''', (user.id,))
-    history_count = cursor.fetchone()[0]
-    
-    conn.close()
-    
-    # Handle anonymous users differently
-    if user.email.startswith("anon_"):
-        if conversation_count == 0:
-            # First-time anonymous user
-            return f"Hello! I'm your AI travel assistant. I can help you with flights, hotels, car rentals, activities, travel insurance, visa requirements, and much more. You're currently browsing anonymously - I can assist you right away, but creating an account would let me provide personalized recommendations that improve with each conversation. How can I help you plan your next trip?"
-        else:
-            # Returning anonymous user - encourage registration
-            return f"Hello again! I see we've chatted before. I can help you with all your travel needs, but I notice you're still browsing anonymously. Creating an account would allow me to remember your preferences and provide increasingly personalized recommendations. Would you like to register, or shall we continue with your travel planning?"
-    
-    # Handle registered users
-    if conversation_count == 0:
-        # Brand new registered user
-        return f"Welcome {user.first_name}! I'm your personal AI travel assistant. I'm here to help you with all your travel needs - from booking flights and hotels to getting travel insurance and checking visa requirements. I'll learn from our conversations to provide increasingly personalized recommendations. What travel plans can I help you with today?"
-    
-    elif conversation_count > 0 and preferences_count > 0:
-        # Returning registered user with preferences
-        return f"Welcome back, {user.first_name}! Great to see you again. I remember our previous conversations and your travel preferences. I'm ready to help you with your next adventure using everything I've learned about your travel style. What can I assist you with today?"
-    
-    else:
-        # Returning registered user but limited data
-        return f"Hello again, {user.first_name}! I'm continuing to learn about your travel preferences from our conversations. The more we chat, the better I can personalize my recommendations for you. How can I help with your travel plans today?"
+    """Create a concise welcome message listing chatbot capabilities"""
+    first_name = user.first_name or "Traveler"
+    return (
+        f"Hello {first_name}! I'm your personal travel assistant. I can help you with:\n"
+        f"• Booking flights and hotels\n"
+        f"• Rescheduling existing bookings\n"
+        f"• Requesting refunds or cancellations\n\n"
+        f"How can I assist you today?"
+    )
 
 def get_user_context_with_welcome(user_id: str) -> dict:
     """Get user context and determine if welcome message is needed"""
@@ -736,23 +697,33 @@ async def chat_endpoint(payload: ChatRequest, request: Request, current_user: Us
     user_context = get_user_context_with_welcome(current_user.id)
     learning_profile = get_user_learning_profile(current_user.id)
     
-    # Check if this is a new conversation and send welcome message
+    # Check if this is a new conversation and user is truly new (not just new conversation)
     if len(history) == 0:
-        welcome_message = create_welcome_message_for_user(current_user)
+        # Check if user has had previous conversations
+        conn = sqlite3.connect('travel_chatbot.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM conversations WHERE user_id = ?
+        ''', (current_user.id,))
+        conversation_count = cursor.fetchone()[0]
+        conn.close()
         
-        # Save welcome message to history
-        save_message(conversation_id, "assistant", welcome_message)
-        
-        # Add welcome message to history for this conversation
-        history.append({"role": "assistant", "content": welcome_message})
-        
-        # Log welcome event
-        log_analytics_event(current_user.id, "welcome_message_sent", {
-            "user_type": "registered" if not current_user.email.startswith("anon_") else "anonymous",
-            "is_first_time": user_context.get('is_first_conversation', False)
-        })
-        
-        # Don't return here - continue to process the user's message
+        # Only send welcome message for truly new users (first ever conversation)
+        if conversation_count <= 1:  # This is their first conversation
+            welcome_message = create_welcome_message_for_user(current_user)
+            
+            # Save welcome message to history
+            save_message(conversation_id, "assistant", welcome_message)
+            
+            # Add welcome message to history for this conversation
+            history.append({"role": "assistant", "content": welcome_message})
+            
+            # Log welcome event
+            log_analytics_event(current_user.id, "welcome_message_sent", {
+                "user_type": "registered" if not current_user.email.startswith("anon_") else "anonymous",
+                "is_first_time": True
+            })
+        # For returning users starting new conversations, don't send welcome message
     
     # Combine real user data with learned preferences
     enhanced_context = {**user_context, **learning_profile}
@@ -779,21 +750,31 @@ async def chat_endpoint(payload: ChatRequest, request: Request, current_user: Us
 Based on past interactions, the user has shown preferences for:
 {format_learning_insights(learning_profile)}
 
+--- CONVERSATION CONTEXT ---
+This is {'a new' if len(history) <= 1 else 'an ongoing'} conversation. {'The user is a returning customer.' if len(history) > 1 else 'This may be their first interaction.'}
+
 --- CRITICAL INSTRUCTIONS ---
 You are a professional human travel agent having a natural conversation. Follow these rules:
 
-1. NEVER send duplicate welcome messages - if you already welcomed the user, continue the conversation naturally
-2. ALWAYS respond directly to the user's request - never ignore what they asked for
-3. Be contextually aware - remember what was discussed in this conversation
-4. Use practical logic - seats 24A and 24B cannot both be aisle seats; aisle seats are typically A and F in a 6-seat row
-5. Be specific and accurate with details like seat numbers, flight times, hotel names
-6. Sound human and conversational, not robotic
-7. Learn from context - if user mentions traveling with someone, remember that throughout the conversation
-8. No markdown formatting - write in natural flowing paragraphs
-9. If you make a booking, provide realistic confirmation numbers and details
-10. Ask clarifying questions when needed, but prioritize taking action when you have enough information
+1. NEVER send welcome messages to returning users - if this is an ongoing conversation, continue naturally
+2. ALWAYS respect user choices - if they say "option 3", use exactly option 3 from your previous search results  
+3. MAINTAIN context throughout conversation - remember departure cities, travel companions, dates
+4. When user corrects information (like departure city), acknowledge and use the correct information
+5. Use search_flights tool to show options, then book_flight tool with exact option number when user chooses
+6. Don't make up flight data - use tools to get consistent information
+7. Remember travel companions mentioned (brother, family) for all bookings
+8. Be specific and accurate - no generic or inconsistent details
+9. For returning users: acknowledge you remember them briefly, then focus on their current request
+10. Ask clarifying questions when needed, but prioritize taking action on clear requests
+11. No markdown formatting - write in natural flowing paragraphs
 
-Respond as a knowledgeable, efficient, and friendly human travel agent who pays attention to details and never repeats themselves unnecessarily."""
+EXAMPLE OF CORRECT BEHAVIOR:
+New user: "help me book flight" → Ask for departure, destination, dates
+Returning user: "help me book flight" → "I can help you with that! Where would you like to fly from and to?"
+
+User: "option 3" → Use book_flight tool with option_number="3" for the exact flight they chose
+
+Respond as a knowledgeable, efficient, and friendly human travel agent who pays attention to details and follows user instructions precisely."""
 
     # Prepare initial state
     initial_state = {
@@ -820,12 +801,8 @@ Respond as a knowledgeable, efficient, and friendly human travel agent who pays 
             "user_type": "registered" if not current_user.is_demo_user else "anonymous"
         })
 
-        # If this was the first message in conversation, combine welcome with response
-        if len(history) == 1:  # Only welcome message was in history before user message
-            combined_response = f"{history[0]['content']}\n\n{ai_response}"
-            return ChatResponse(conversation_id=conversation_id, response=combined_response)
-        else:
-            return ChatResponse(conversation_id=conversation_id, response=ai_response)
+        # FIXED: Don't combine welcome messages - just return the AI response
+        return ChatResponse(conversation_id=conversation_id, response=ai_response)
     
     except Exception as e:
         print(f"Error generating response: {e}")
