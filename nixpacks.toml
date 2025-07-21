@@ -1,8 +1,3 @@
-[start]
-cmd = "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
-
+# Use custom Dockerfile instead of nixpacks
 [build]
-cmd = "cd frontend && npm install && npm run build && cd ../backend && pip install -r requirements.txt"
-
-[variables]
-PYTHONPATH = "/app:/app/backend" 
+dockerfile = "Dockerfile" 

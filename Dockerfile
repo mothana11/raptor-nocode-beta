@@ -1,30 +1,26 @@
-# Multi-stage Dockerfile for Travel Chatbot
-
-# Stage 1: Build frontend
+# Multi-stage build for React frontend and Python backend
 FROM node:18-alpine AS frontend-builder
+
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --only=production
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: Backend with Python
+# Python backend stage
 FROM python:3.9-slim
+
+WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    sqlite3 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
-WORKDIR /app
-
-# Copy backend requirements and install dependencies
-COPY backend/requirements.txt ./backend/
-RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy backend code
 COPY backend/ ./backend/
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy built frontend
 COPY --from=frontend-builder /app/frontend/dist ./backend/static
@@ -32,17 +28,11 @@ COPY --from=frontend-builder /app/frontend/dist ./backend/static
 # Create uploads directory
 RUN mkdir -p /app/backend/uploads
 
+# Set working directory to backend
+WORKDIR /app/backend
+
 # Expose port
-EXPOSE 8000
+EXPOSE $PORT
 
-# Set environment variables
-ENV PYTHONPATH=/app/backend
-ENV UPLOAD_DIR=/app/backend/uploads
-
-# Create startup script
-RUN echo '#!/bin/bash\n\
-cd /app/backend\n\
-python main.py --host 0.0.0.0 --port 8000\n\
-' > /app/start.sh && chmod +x /app/start.sh
-
-CMD ["/app/start.sh"] 
+# Start command
+CMD python -m uvicorn main:app --host 0.0.0.0 --port $PORT 
