@@ -20,14 +20,8 @@ class AgentState(TypedDict):
 def build_travel_workflow(openai_api_key: str):
     llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7, api_key=openai_api_key)
 
-    tools = [
-        ALL_TOOLS["search_flights"],
-        ALL_TOOLS["book_flight"],
-        ALL_TOOLS["search_hotels"],
-        ALL_TOOLS["book_hotel"],
-        ALL_TOOLS["cancel_or_modify_booking"],
-        ALL_TOOLS["check_booking_status"]
-    ]
+    # Use all available AI-powered travel tools
+    tools = ALL_TOOLS
 
     # Agent that can decide when to call tools (ReAct pattern)
     agent = create_react_agent(
