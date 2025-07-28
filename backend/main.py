@@ -61,11 +61,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Mount static files for serving uploaded files
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-# Mount the built React frontend (for Replit deployment)
-import pathlib
-frontend_dist_path = pathlib.Path(__file__).parent.parent / "frontend" / "dist"
-if frontend_dist_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist_path), html=True), name="static")
+# NOTE: Static frontend mount moved to end of file to not interfere with API routes
 
 # Initialize OpenAI client for image processing
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -1165,4 +1161,10 @@ async def get_analytics_dashboard():
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Mount the built React frontend LAST so it doesn't interfere with API routes
+import pathlib
+frontend_dist_path = pathlib.Path(__file__).parent.parent / "frontend" / "dist"
+if frontend_dist_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist_path), html=True), name="static") 
