@@ -956,7 +956,21 @@ Respond as a knowledgeable, efficient, and friendly human travel agent who pays 
         
         # Provide specific error messages for rate limits
         if is_rate_limit:
-            error_response = "I'm experiencing high demand right now. Please wait a few seconds and try again. The AI-powered travel tools have built-in rate limiting to ensure quality service."
+            if "quota" in error_str.lower():
+                error_response = """🚨 OpenAI API Quota Exceeded
+
+Your OpenAI API key has reached its usage limit. Here's how to fix this:
+
+1. **Check your OpenAI billing**: Visit https://platform.openai.com/billing
+2. **Add payment method**: Add a credit card if you haven't already  
+3. **Increase usage limits**: Purchase additional credits or upgrade your plan
+4. **Wait for reset**: Some limits reset hourly/daily
+
+Alternative: Create a new API key with available credits at https://platform.openai.com/api-keys
+
+The travel assistant uses AI-powered tools that require OpenAI API access to provide intelligent flight searches, hotel bookings, and travel recommendations."""
+            else:
+                error_response = "I'm experiencing high demand right now. Please wait a few seconds and try again. The AI-powered travel tools have built-in rate limiting to ensure quality service."
         else:
             error_response = "I apologize, but I'm having trouble processing your request right now. Please try again in a moment."
             
