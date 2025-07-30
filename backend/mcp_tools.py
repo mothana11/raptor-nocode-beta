@@ -3,15 +3,42 @@ from typing import Dict, Any
 import json
 from datetime import datetime, timedelta
 import os
+import time
+import hashlib
 from openai import OpenAI
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Simple cache and rate limiting
+_tool_cache = {}
+_last_api_call = 0
+_min_call_interval = 1.0  # Minimum 1 second between API calls
+
+def _get_cache_key(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
+    """Generate cache key for tool responses"""
+    cache_data = f"{tool_name}:{user_query}:{json.dumps(parameters, sort_keys=True)}"
+    return hashlib.md5(cache_data.encode()).hexdigest()
+
 def _call_openai_for_tool(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
     """
     Use OpenAI to generate intelligent, contextual responses for travel tools
+    with caching and rate limiting
     """
+    # Check cache first
+    cache_key = _get_cache_key(tool_name, user_query, parameters)
+    if cache_key in _tool_cache:
+        cached_result, cached_time = _tool_cache[cache_key]
+        # Cache valid for 5 minutes
+        if time.time() - cached_time < 300:
+            return cached_result
+    
+    # Rate limiting
+    global _last_api_call
+    time_since_last_call = time.time() - _last_api_call
+    if time_since_last_call < _min_call_interval:
+        time.sleep(_min_call_interval - time_since_last_call)
+    
     # Create a comprehensive prompt for the specific tool
     system_prompts = {
         "search_flights": f"""You are a professional flight search assistant. Generate realistic flight search results for the user's query.
@@ -125,6 +152,7 @@ Format as JSON with cancellation_status, refund_amount, timeline, and policy det
     Provide a helpful, realistic response in JSON format.""")
 
     try:
+        _last_api_call = time.time()
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -135,7 +163,12 @@ Format as JSON with cancellation_status, refund_amount, timeline, and policy det
             max_tokens=800
         )
         
-        return response.choices[0].message.content
+        result = response.choices[0].message.content
+        
+        # Cache the result
+        _tool_cache[cache_key] = (result, time.time())
+        
+        return result
     except Exception as e:
         # Fallback response if OpenAI call fails
         return json.dumps({

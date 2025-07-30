@@ -400,6 +400,78 @@ def learn_from_conversation(user_id: str, user_message: str, ai_response: str):
     if learning_data:
         learn_from_user_behavior(user_id, learning_data)
 
+def get_simple_travel_response(user_message: str, current_user) -> str:
+    """
+    Simple travel assistant responses without OpenAI API calls
+    """
+    message_lower = user_message.lower()
+    user_name = current_user.first_name if current_user.first_name else "there"
+    
+    # Flight searches
+    if any(word in message_lower for word in ['flight', 'fly', 'plane', 'airline']):
+        return f"""Hi {user_name}! I'd be happy to help you search for flights. 
+
+To find the best flight options for you, I'll need a few details:
+• Where would you like to fly from?
+• What's your destination?
+• When would you like to travel?
+• How many passengers?
+
+Once you provide these details, I can search for available flights with real-time prices and schedules!"""
+
+    # Hotel searches
+    elif any(word in message_lower for word in ['hotel', 'stay', 'accommodation', 'room']):
+        return f"""Hi {user_name}! I can help you find great hotel options.
+
+To search for the perfect accommodation, please let me know:
+• Which city or area are you looking at?
+• Check-in and check-out dates?
+• Number of guests?
+• Any preferences (budget, luxury, specific amenities)?
+
+I'll find hotels that match your needs and budget!"""
+
+    # Greetings
+    elif any(word in message_lower for word in ['hi', 'hello', 'hey', 'good morning', 'good evening']):
+        return f"""Hello {user_name}! Welcome to your personal travel assistant. I'm here to help you with all your travel needs:
+
+✈️ **Flight Booking** - Search and book flights worldwide
+🏨 **Hotel Reservations** - Find accommodations that fit your style
+🌤️ **Weather Updates** - Get forecasts for your destinations  
+🎒 **Travel Planning** - Tips and recommendations for your trips
+📋 **Booking Management** - Modify or cancel existing reservations
+
+What travel plans are you working on today?"""
+
+    # General travel help
+    elif any(word in message_lower for word in ['help', 'travel', 'trip', 'vacation', 'plan']):
+        return f"""I'm here to help with your travel planning, {user_name}! Here's what I can assist you with:
+
+🔍 **Search & Book:**
+• Flights to any destination
+• Hotels and accommodations
+• Compare prices and options
+
+📅 **Manage Bookings:**
+• Reschedule flights or hotels
+• Cancel reservations
+• Check booking status
+
+🌍 **Travel Information:**
+• Weather forecasts
+• Travel tips and recommendations
+• Destination guides
+
+What specific travel assistance do you need today?"""
+
+    # Default helpful response
+    else:
+        return f"""Hi {user_name}! I'm your travel assistant, and I'm here to help you plan amazing trips!
+
+I can assist you with flights, hotels, weather information, and travel planning. What would you like to help you with today?
+
+Just tell me what you're looking for - like "I need a flight to Paris" or "Find me a hotel in Tokyo" - and I'll get started right away!"""
+
 def extract_tools_from_response(response: str) -> list:
     """Extract which tools were likely used based on response content"""
     tools_used = []
@@ -819,15 +891,31 @@ Respond as a knowledgeable, efficient, and friendly human travel agent who pays 
         return ChatResponse(conversation_id=conversation_id, response=ai_response)
     
     except Exception as e:
+        error_str = str(e)
         print(f"Error generating response: {e}")
+        
+        # Check if it's a rate limit error
+        is_rate_limit = "429" in error_str or "quota" in error_str.lower() or "rate limit" in error_str.lower()
+        
         # Log error for debugging
         log_analytics_event(current_user.id, "chat_error", {
-            "error": str(e),
-            "conversation_id": conversation_id
+            "error": error_str,
+            "conversation_id": conversation_id,
+            "is_rate_limit": is_rate_limit
         })
         
-        error_response = "I apologize, but I'm having trouble processing your request right now. Please try again in a moment."
-        return ChatResponse(conversation_id=conversation_id, response=error_response)
+        # Use simple fallback for rate limits or API issues
+        if is_rate_limit or "openai" in error_str.lower():
+            fallback_response = get_simple_travel_response(payload.message, current_user)
+            
+            # Save both user message and fallback response
+            save_message(conversation_id, "user", payload.message)
+            save_message(conversation_id, "assistant", fallback_response)
+            
+            return ChatResponse(conversation_id=conversation_id, response=fallback_response)
+        else:
+            error_response = "I apologize, but I'm having trouble processing your request right now. Please try again in a moment."
+            return ChatResponse(conversation_id=conversation_id, response=error_response)
 
 @app.post("/chat-with-files", response_model=ChatResponse)
 async def chat_with_files_endpoint(
