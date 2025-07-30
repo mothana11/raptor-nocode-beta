@@ -904,18 +904,13 @@ Respond as a knowledgeable, efficient, and friendly human travel agent who pays 
             "is_rate_limit": is_rate_limit
         })
         
-        # Use simple fallback for rate limits or API issues
-        if is_rate_limit or "openai" in error_str.lower():
-            fallback_response = get_simple_travel_response(payload.message, current_user)
-            
-            # Save both user message and fallback response
-            save_message(conversation_id, "user", payload.message)
-            save_message(conversation_id, "assistant", fallback_response)
-            
-            return ChatResponse(conversation_id=conversation_id, response=fallback_response)
+        # Provide specific error messages for rate limits
+        if is_rate_limit:
+            error_response = "I'm experiencing high demand right now. Please wait a few seconds and try again. The AI-powered travel tools have built-in rate limiting to ensure quality service."
         else:
             error_response = "I apologize, but I'm having trouble processing your request right now. Please try again in a moment."
-            return ChatResponse(conversation_id=conversation_id, response=error_response)
+            
+        return ChatResponse(conversation_id=conversation_id, response=error_response)
 
 @app.post("/chat-with-files", response_model=ChatResponse)
 async def chat_with_files_endpoint(

@@ -13,10 +13,10 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Simple cache and rate limiting
 _tool_cache = {}
 _last_api_call = 0
-_min_call_interval = 2.0  # Minimum 2 seconds between API calls (increased from 1s)
+_min_call_interval = 5.0  # Minimum 5 seconds between API calls (increased)
 _daily_call_count = 0
 _last_reset_date = None
-_max_daily_calls = 50  # Maximum 50 tool API calls per day
+_max_daily_calls = 30  # Reduced to 30 calls per day
 
 def _get_cache_key(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
     """Generate cache key for tool responses"""
@@ -37,28 +37,31 @@ def _check_daily_limit() -> bool:
 def _call_openai_for_tool(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
     """
     Use OpenAI to generate intelligent, contextual responses for travel tools
-    with aggressive caching and rate limiting
+    with aggressive rate limiting to prevent quota issues
     """
-    # Check cache first (increased cache time to 30 minutes)
+    # Check cache first (increased cache time to 1 hour)
     cache_key = _get_cache_key(tool_name, user_query, parameters)
     if cache_key in _tool_cache:
         cached_result, cached_time = _tool_cache[cache_key]
-        # Cache valid for 30 minutes (increased from 5 minutes)
-        if time.time() - cached_time < 1800:
+        # Cache valid for 1 hour (increased from 30 minutes)
+        if time.time() - cached_time < 3600:
+            print(f"🔄 Using cached response for {tool_name}")
             return cached_result
     
     # Check daily limit
     if not _check_daily_limit():
         return json.dumps({
             "error": "Daily API limit reached",
-            "message": "Our AI services are at capacity today. Please try the basic search options or try again tomorrow."
+            "message": "Our AI services are at capacity today. Please try again tomorrow or contact support for immediate assistance."
         })
     
-    # Rate limiting (2 seconds between calls)
+    # Aggressive rate limiting (5 seconds between calls)
     global _last_api_call, _daily_call_count
     time_since_last_call = time.time() - _last_api_call
     if time_since_last_call < _min_call_interval:
-        time.sleep(_min_call_interval - time_since_last_call)
+        wait_time = _min_call_interval - time_since_last_call
+        print(f"⏱️ Rate limiting: waiting {wait_time:.1f} seconds before API call...")
+        time.sleep(wait_time)
     
     # Create a comprehensive prompt for the specific tool
     system_prompts = {
