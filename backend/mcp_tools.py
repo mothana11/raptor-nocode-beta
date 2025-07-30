@@ -13,28 +13,49 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Simple cache and rate limiting
 _tool_cache = {}
 _last_api_call = 0
-_min_call_interval = 1.0  # Minimum 1 second between API calls
+_min_call_interval = 2.0  # Minimum 2 seconds between API calls (increased from 1s)
+_daily_call_count = 0
+_last_reset_date = None
+_max_daily_calls = 50  # Maximum 50 tool API calls per day
 
 def _get_cache_key(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
     """Generate cache key for tool responses"""
     cache_data = f"{tool_name}:{user_query}:{json.dumps(parameters, sort_keys=True)}"
     return hashlib.md5(cache_data.encode()).hexdigest()
 
+def _check_daily_limit() -> bool:
+    """Check if we've hit the daily API call limit"""
+    global _daily_call_count, _last_reset_date
+    
+    today = datetime.now().date()
+    if _last_reset_date != today:
+        _daily_call_count = 0
+        _last_reset_date = today
+    
+    return _daily_call_count < _max_daily_calls
+
 def _call_openai_for_tool(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
     """
     Use OpenAI to generate intelligent, contextual responses for travel tools
-    with caching and rate limiting
+    with aggressive caching and rate limiting
     """
-    # Check cache first
+    # Check cache first (increased cache time to 30 minutes)
     cache_key = _get_cache_key(tool_name, user_query, parameters)
     if cache_key in _tool_cache:
         cached_result, cached_time = _tool_cache[cache_key]
-        # Cache valid for 5 minutes
-        if time.time() - cached_time < 300:
+        # Cache valid for 30 minutes (increased from 5 minutes)
+        if time.time() - cached_time < 1800:
             return cached_result
     
-    # Rate limiting
-    global _last_api_call
+    # Check daily limit
+    if not _check_daily_limit():
+        return json.dumps({
+            "error": "Daily API limit reached",
+            "message": "Our AI services are at capacity today. Please try the basic search options or try again tomorrow."
+        })
+    
+    # Rate limiting (2 seconds between calls)
+    global _last_api_call, _daily_call_count
     time_since_last_call = time.time() - _last_api_call
     if time_since_last_call < _min_call_interval:
         time.sleep(_min_call_interval - time_since_last_call)
