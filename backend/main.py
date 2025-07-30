@@ -765,11 +765,58 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
         is_demo_user=False
     )
 
+# Add global conversation rate limiting
+_last_conversation_call = 0
+_conversation_call_interval = 3.0  # 3 seconds between conversation API calls
+_daily_conversation_count = 0
+_last_conversation_reset = None
+_max_daily_conversations = 20  # Maximum 20 conversation API calls per day
+
+def _check_conversation_quota() -> tuple[bool, str]:
+    """Check if we can make a conversation API call"""
+    global _daily_conversation_count, _last_conversation_reset, _last_conversation_call
+    import time
+    from datetime import datetime
+    
+    # Reset daily count
+    today = datetime.now().date()
+    if _last_conversation_reset != today:
+        _daily_conversation_count = 0
+        _last_conversation_reset = today
+    
+    # Check daily limit
+    if _daily_conversation_count >= _max_daily_conversations:
+        return False, "Daily conversation limit reached. The AI assistant has reached its daily capacity. Please try again tomorrow."
+    
+    # Check rate limiting
+    time_since_last = time.time() - _last_conversation_call
+    if time_since_last < _conversation_call_interval:
+        wait_time = _conversation_call_interval - time_since_last
+        return False, f"Please wait {wait_time:.1f} seconds before sending another message. This helps manage API usage."
+    
+    return True, ""
+
+def _record_conversation_call():
+    """Record that we made a conversation API call"""
+    global _daily_conversation_count, _last_conversation_call
+    import time
+    _daily_conversation_count += 1
+    _last_conversation_call = time.time()
+    print(f"📊 Conversation API call #{_daily_conversation_count}/20 today")
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(payload: ChatRequest, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """Chat endpoint that processes user messages and returns AI responses with learning"""
     if not payload.message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    # Check conversation quota BEFORE making any API calls
+    can_proceed, quota_message = _check_conversation_quota()
+    if not can_proceed:
+        return ChatResponse(
+            conversation_id=payload.conversation_id or "quota_limited", 
+            response=quota_message
+        )
 
     # Get or create conversation ID
     conversation_id = payload.conversation_id
@@ -868,6 +915,9 @@ Respond as a knowledgeable, efficient, and friendly human travel agent who pays 
     }
 
     try:
+        # Record that we're making a conversation API call
+        _record_conversation_call()
+        
         result_state = workflow.invoke(initial_state)
         final_msg = result_state["messages"][-1]
         ai_response = final_msg.content if isinstance(final_msg, (AIMessage,)) else str(final_msg)
