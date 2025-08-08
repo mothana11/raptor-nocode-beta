@@ -1,31 +1,30 @@
 #!/usr/bin/env bash
-set -e                                              # bail on error
 
 echo "🚀 Starting Travel Chatbot for Replit..."
 
-# ── Backend deps ──────────────────────────────────────────────────────────
+# Install backend dependencies
 echo "📦 Installing Python dependencies..."
 cd backend
-python3 -m pip install --no-cache-dir -r requirements.txt   # ← drop --user
+python3 -m pip install --user -r requirements.txt
 cd ..
 
-# ── Front-end build (optional) ───────────────────────────────────────────
+# Install and build frontend (if npm is available)
 echo "📦 Installing and building frontend..."
 cd frontend
-if command -v npm &>/dev/null; then
-  npm ci --silent               # faster/safer than npm install
-  npm run build --silent
-  echo "✅ Frontend built successfully"
+if command -v npm &> /dev/null; then
+    npm install --silent
+    npm run build --silent
+    echo "✅ Frontend built successfully"
 else
-  echo "⚠️  npm not found, skipping frontend build"
+    echo "⚠️  npm not found, skipping frontend build"
 fi
 cd ..
 
-# ── .env scaffold  (first-run only) ───────────────────────────────────────
+# Create a simple .env file for Replit (without sensitive keys)
 echo "🔧 Creating environment file..."
 cd backend
-if [[ ! -f .env ]]; then
-  cat > .env <<'EOF'
+if [ ! -f .env ]; then
+    cat > .env << 'EOF'
 # Replit Demo Environment
 OPENAI_API_KEY=your_openai_api_key_here
 SECRET_KEY=your_secret_key_here
@@ -35,14 +34,15 @@ AMADEUS_CLIENT_ID=your_amadeus_client_id_here
 AMADEUS_CLIENT_SECRET=your_amadeus_client_secret_here
 AMADEUS_ACCESS_TOKEN=your_amadeus_access_token_here
 EOF
-  echo "✅ Environment file created"
+    echo "✅ Environment file created"
 else
-  echo "✅ Environment file already exists"
+    echo "✅ Environment file already exists"
 fi
 cd ..
 
-# ── Launch server ─────────────────────────────────────────────────────────
+# Start the FastAPI server
 echo "🌟 Starting server on port 8000..."
 export PORT=8000
 cd backend
-python3 -m uvicorn main:app --host 0.0.0.0 --port "$PORT"
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+python3 -m uvicorn main:app --host 0.0.0.0 --port $PORT 
