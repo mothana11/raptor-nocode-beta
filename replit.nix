@@ -2,18 +2,15 @@
 
 {
   deps = [
-    # --- Python 3.11 with the packages you need ---------------
-    (pkgs.python3.withPackages (ps: with ps; [
-      pip          # brings in the `pip` CLI
-      uvicorn       # runtime dep for your FastAPI app
-    ]))
+    # ---- Python 3.11 + pip + uvicorn ---------------------------------
+    (pkgs.python3.withPackages (ps: with ps; [ pip uvicorn ]))
 
-    # --- Node 20 & the npm CLI -------------------------------
-    pkgs.nodejs_20              # interpreter
-    pkgs.nodePackages.npm       # npm command
+    # ---- Node 18 + npm (22.11’s newest) ------------------------------
+    pkgs.nodejs-18_x       # Node runtime
+    pkgs.nodePackages.npm  # npm CLI
 
-    # --- Misc tools you asked for ----------------------------
+    # ---- Utilities ---------------------------------------------------
     pkgs.git
-    pkgs.bashInteractive
+    pkgs.bashInteractive   # gives you an interactive bash
   ];
 }
