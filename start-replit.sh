@@ -45,4 +45,9 @@ echo "🌟 Starting server on port 8000..."
 export PORT=8000
 cd backend
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+
+# Check Python syntax
+echo "🔍 Checking Python syntax..."
+python3 check_syntax.py
+
 python3 -m uvicorn main:app --host 0.0.0.0 --port $PORT 
