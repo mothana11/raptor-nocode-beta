@@ -21,13 +21,13 @@ cd backend
 if [ ! -f .env ]; then
     cat > .env << 'EOF'
 # Replit Demo Environment
-OPENAI_API_KEY=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
-SECRET_KEY=travel-chatbot-secret-key-for-jwt-tokens-2024
+OPENAI_API_KEY=your_openai_api_key_here
+SECRET_KEY=your_secret_key_here
 DATABASE_URL=sqlite:///travel_chatbot.db
-RAPID_API_KEY=dfade5fd12mshc0d7bdfde01ee7dp19f143jsn38dda501a038
-AMADEUS_CLIENT_ID=HL6VVtKrkMNEGJAt4bxb7pXaJj9lgAom
-AMADEUS_CLIENT_SECRET=AA7v5azuULhZsb4O
-AMADEUS_ACCESS_TOKEN=r8yMqAYqvVeiRqa1TFBjqNRrPgfF
+RAPID_API_KEY=your_rapid_api_key_here
+AMADEUS_CLIENT_ID=your_amadeus_client_id_here
+AMADEUS_CLIENT_SECRET=your_amadeus_client_secret_here
+AMADEUS_ACCESS_TOKEN=your_amadeus_access_token_here
 EOF
     echo "✅ Environment file created"
 else
