@@ -1,12 +1,12 @@
 run = "bash start-replit.sh"
-language = "python3"
+language = "python"
 entrypoint = "start-replit.sh"
 
 [nix]
 channel = "stable-22_11"
 
 modules = [
-  "python312",        # pulls in python3.12
+  "python311",        # pulls in python3.11
   "nodejs_20_x",      # pulls in nodejs 20
   "nodePackages.npm", # so `npm` shows up
   "bash",

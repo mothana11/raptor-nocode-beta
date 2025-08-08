@@ -5,7 +5,7 @@ echo "🚀 Starting Travel Chatbot for Replit..."
 # Install backend dependencies
 echo "📦 Installing Python dependencies..."
 cd backend
-python3 -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 cd ..
 
 # Install and build frontend (if npm is available)
@@ -48,6 +48,6 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 
 # Check Python syntax
 echo "🔍 Checking Python syntax..."
-python3 check_syntax.py
+python check_syntax.py
 
-python3 -m uvicorn main:app --host 0.0.0.0 --port $PORT 
+python -m uvicorn main:app --host 0.0.0.0 --port $PORT 
