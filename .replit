@@ -1,6 +1,6 @@
-run = "bash start-replit.sh"
+run = "bash setup-replit.sh && bash start-replit.sh"
 language = "python3"
-entrypoint = "start-replit.sh"
+entrypoint = "setup-replit.sh"
 
 [nix]
 channel = "stable-22_11"
