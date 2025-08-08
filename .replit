@@ -3,11 +3,11 @@ language = "python"
 entrypoint = "start-replit.sh"
 
 [nix]
-channel = "stable-22_11"
+channel = "stable-25_05"
 
 modules = [
   "python311",        # pulls in python3.11
-  "nodejs_20_x",      # pulls in nodejs 20
+  "nodejs_21_x",      # pulls in nodejs 21 (updated from 20)
   "nodePackages.npm", # so `npm` shows up
   "bash",
   "git"
