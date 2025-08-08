@@ -2,7 +2,7 @@ fastapi==0.110.0
 uvicorn[standard]==0.29.0
 langchain==0.3.26
 langchain-openai==0.3.27
-langgraph==0.5.2
+langgraph==0.2.16
 python-dotenv==1.0.1 
 requests==2.31.0
 python-multipart==0.0.6

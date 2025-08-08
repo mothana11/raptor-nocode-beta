@@ -28,9 +28,9 @@ print("DEBUG AMADEUS_CLIENT_ID =", os.getenv("AMADEUS_CLIENT_ID"))
 
 # Import the INTELLIGENT workflow - NO HARDCODING
 try:
-    from backend.workflow import process_travel_request
-    from backend.mcp_tools import get_real_mcp_tools
-    from backend.auth import (
+    from workflow import process_travel_request
+    from mcp_tools import get_real_mcp_tools
+    from auth import (
         init_auth_tables, UserCreate, UserLogin, UserResponse,
         create_user, authenticate_user, create_access_token, 
         get_current_user_from_token, get_or_create_anonymous_user,
@@ -38,6 +38,9 @@ try:
         get_user_learning_profile, create_session
     )
 except ImportError:
+    # Fallback for different directory structures
+    import sys
+    sys.path.append('.')
     from workflow import process_travel_request
     from mcp_tools import get_real_mcp_tools
     from auth import (
