@@ -1,12 +1,12 @@
 run = "bash start-replit.sh"
 language = "python3"
-entrypoint = "start-replit.sh"
+modules = ["python-3.12", "nodejs-20", "bash", "web"]
 
 [nix]
-channel = "stable-22_11"
+channel = "stable-25_05"
 
 [deployment]
-run = ["sh", "-c", "bash start-replit.sh"]
+run = ["sh", "-c", "bash setup-replit.sh && bash start-replit.sh"]
 
 [env]
 PYTHONPATH = "$PYTHONPATH:/home/runner/$REPL_SLUG/backend"
