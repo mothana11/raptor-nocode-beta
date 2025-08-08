@@ -1,12 +1,20 @@
-run = "bash start-replit.sh"
-language = "python3"
-modules = ["python-3.12", "nodejs-20", "bash", "web"]
+run = "bash setup-replit.sh && bash start-replit.sh"
+language = "bash"
+entrypoint = ""
 
 [nix]
 channel = "stable-25_05"
 
+modules = [
+  "python312"        # pulls in python3.12
+  "nodejs_20_x"      # pulls in nodejs 20
+  "nodePackages.npm" # so `npm` shows up
+  "bash"
+  "git"
+]# these must be Nix attribute names, not “python-3.12” or “nodejs-20”
+
 [deployment]
-run = ["sh", "-c", "bash setup-replit.sh && bash start-replit.sh"]
+run = ["bash setup-replit.sh && bash start-replit.sh"]
 
 [env]
 PYTHONPATH = "$PYTHONPATH:/home/runner/$REPL_SLUG/backend"
