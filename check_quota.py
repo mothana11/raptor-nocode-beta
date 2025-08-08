@@ -15,9 +15,9 @@ def check_openai_quota():
     client = OpenAI(api_key=api_key)
     
     try:
-        # Make a simple, low-cost API call
+        # Make a simple, low-cost API call with gpt-4o-mini
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",  # Using the cheapest GPT-4 model
             messages=[{"role": "user", "content": "Say 'OK'"}],
             max_tokens=5
         )

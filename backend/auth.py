@@ -17,8 +17,9 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 import secrets
 
-# Configuration
-SECRET_KEY = secrets.token_urlsafe(32)  # In production, use environment variable
+# Configuration  
+import os
+SECRET_KEY = os.getenv("SECRET_KEY", "travel-chatbot-secret-key-for-jwt-tokens-2024")  # Use consistent key
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30 days
 

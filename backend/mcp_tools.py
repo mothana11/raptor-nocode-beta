@@ -1,478 +1,531 @@
-from langchain.tools import tool
-from typing import Dict, Any
-import json
-from datetime import datetime, timedelta
+# mcp_tools.py - REAL MCP TOOLS with Mock Payment Processing
 import os
-import time
-import hashlib
+import json
+import requests
+import logging
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 from openai import OpenAI
+import hashlib
+import random
+import string
+import re
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+logger = logging.getLogger(__name__)
 
-# Simple cache and rate limiting
-_tool_cache = {}
-_last_api_call = 0
-_min_call_interval = 5.0  # Minimum 5 seconds between API calls (increased)
-_daily_call_count = 0
-_last_reset_date = None
-_max_daily_calls = 30  # Reduced to 30 calls per day
+# Initialize real API clients
+AMADEUS_CLIENT_ID = os.getenv("AMADEUS_CLIENT_ID")
+AMADEUS_CLIENT_SECRET = os.getenv("AMADEUS_CLIENT_SECRET")
+RAPID_API_KEY = os.getenv("RAPID_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-def _get_cache_key(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
-    """Generate cache key for tool responses"""
-    cache_data = f"{tool_name}:{user_query}:{json.dumps(parameters, sort_keys=True)}"
-    return hashlib.md5(cache_data.encode()).hexdigest()
+# Initialize OpenAI for intelligent processing
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+print("DEBUG  ‣ OPENAI_API_KEY starts with:", OPENAI_API_KEY[:10] if OPENAI_API_KEY else "None")
 
-def _check_daily_limit() -> bool:
-    """Check if we've hit the daily API call limit"""
-    global _daily_call_count, _last_reset_date
-    
-    today = datetime.now().date()
-    if _last_reset_date != today:
-        _daily_call_count = 0
-        _last_reset_date = today
-    
-    return _daily_call_count < _max_daily_calls
 
-def _call_openai_for_tool(tool_name: str, user_query: str, parameters: Dict[str, Any]) -> str:
+
+import json, logging
+from datetime import datetime
+
+def _translate_flight_query(
+    origin: str,
+    destination: str,
+    dep_text: str,
+    ret_text: Optional[str] = None
+) -> tuple[str, str, str, Optional[str]]:
     """
-    Use OpenAI to generate intelligent, contextual responses for travel tools
-    with aggressive rate limiting to prevent quota issues
+    1) Normalize free-form → IATA + ISO dates via GPT
+    2) Bump any date < today into next year
     """
-    # Check cache first (increased cache time to 1 hour)
-    cache_key = _get_cache_key(tool_name, user_query, parameters)
-    if cache_key in _tool_cache:
-        cached_result, cached_time = _tool_cache[cache_key]
-        # Cache valid for 1 hour (increased from 30 minutes)
-        if time.time() - cached_time < 3600:
-            print(f"🔄 Using cached response for {tool_name}")
-            return cached_result
-    
-    # Check daily limit
-    if not _check_daily_limit():
-        return json.dumps({
-            "error": "Daily API limit reached",
-            "message": "Our AI services are at capacity today. Please try again tomorrow or contact support for immediate assistance."
-        })
-    
-    # Aggressive rate limiting (5 seconds between calls)
-    global _last_api_call, _daily_call_count
-    time_since_last_call = time.time() - _last_api_call
-    if time_since_last_call < _min_call_interval:
-        wait_time = _min_call_interval - time_since_last_call
-        print(f"⏱️ Rate limiting: waiting {wait_time:.1f} seconds before API call...")
-        time.sleep(wait_time)
-    
-    # Create a comprehensive prompt for the specific tool
-    system_prompts = {
-        "search_flights": f"""You are a professional flight search assistant. Generate realistic flight search results for the user's query.
+    if not openai_client:
+        return origin[:3].upper(), destination[:3].upper(), dep_text, ret_text
 
-User is searching for flights with these parameters: {json.dumps(parameters)}
+    today = datetime.utcnow().date()
+    prompt = f"""
+Assume today's date is {today.isoformat()}.
+Return EXACTLY this JSON shape:
+  {{ "origin":"IATA","destination":"IATA","departure":"YYYY-MM-DD","return":"YYYY-MM-DD or null" }}
 
-Provide 3-4 realistic flight options with:
-- Real airline names and flight numbers
-- Realistic departure/arrival times
-- Appropriate prices based on route and date
-- Actual aircraft types
-- Real airport codes
-- Realistic flight durations
+• If user omitted the year, pick the next occurrence (>= today).
+• Only ISO dates, only 3-letter IATA codes.
 
-Format as JSON with this structure:
-{{
-  "flights": [
-    {{
-      "flight_number": "DL1234",
-      "airline": "Delta",
-      "departure_time": "08:30",
-      "arrival_time": "11:45",
-      "price": 456,
-      "duration": "3h 15m",
-      "aircraft": "Boeing 737",
-      "stops": 0
-    }}
-  ],
-  "search_summary": "Found X flights from {origin} to {destination}"
-}}
+Origin text      : {origin}
+Destination text : {destination}
+Departure text   : {dep_text}
+Return text      : {ret_text or ""}
+"""
+    logging.debug("💬 _translate_flight_query prompt:\n" + prompt.strip())
 
-Be helpful, professional, and realistic.""",
+    rsp = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        max_tokens=40,
+        messages=[{"role": "user", "content": prompt.strip()}]
+    )
 
-        "search_hotels": f"""You are a professional hotel booking assistant. Generate realistic hotel search results.
-
-User is searching for hotels with these parameters: {json.dumps(parameters)}
-
-Provide 3-4 realistic hotel options with:
-- Real hotel chain names and properties
-- Appropriate star ratings
-- Realistic nightly rates
-- Actual amenities
-- Real locations/neighborhoods
-- Genuine room types
-
-Format as JSON with this structure:
-{{
-  "hotels": [
-    {{
-      "name": "Marriott Downtown",
-      "star_rating": 4,
-      "price_per_night": 189,
-      "location": "Downtown District",
-      "amenities": ["WiFi", "Pool", "Gym"],
-      "room_type": "Standard King"
-    }}
-  ],
-  "search_summary": "Found X hotels in {location}"
-}}""",
-
-        "book_flight": f"""You are a flight booking assistant. Process this flight booking request.
-
-Booking parameters: {json.dumps(parameters)}
-
-Generate a realistic booking confirmation with:
-- Confirmation number
-- Booking details
-- Payment processing
-- Next steps for the traveler
-
-Format as JSON:
-{{
-  "booking_status": "confirmed",
-  "confirmation_number": "ABC123",
-  "booking_details": {{ flight details }},
-  "total_cost": 456,
-  "message": "Your flight has been successfully booked!"
-}}""",
-
-        "book_hotel": f"""You are a hotel booking assistant. Process this hotel booking request.
-
-Booking parameters: {json.dumps(parameters)}
-
-Generate a realistic booking confirmation with confirmation number, details, and next steps.
-
-Format as JSON with booking_status, confirmation_number, booking_details, total_cost, and message.""",
-
-        "reschedule_booking": f"""You are a booking modification assistant. Handle this reschedule request.
-
-Reschedule parameters: {json.dumps(parameters)}
-
-Process the change request realistically - check availability, calculate any fees, provide new options.
-
-Format as JSON with status, options, fees, and helpful message.""",
-
-        "cancel_booking": f"""You are a cancellation assistant. Process this cancellation/refund request.
-
-Cancellation parameters: {json.dumps(parameters)}
-
-Handle the cancellation realistically - check cancellation policy, calculate refund amount, provide timeline.
-
-Format as JSON with cancellation_status, refund_amount, timeline, and policy details."""
-    }
-
-    # Get the appropriate system prompt or use a default
-    system_prompt = system_prompts.get(tool_name, f"""You are a helpful travel assistant. 
-    Help the user with their {tool_name} request: {user_query}
-    
-    Parameters: {json.dumps(parameters)}
-    
-    Provide a helpful, realistic response in JSON format.""")
+    raw = rsp.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        import re
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)      # strip opening fence
+        raw = re.sub(r"\s*```$", "", raw)               # strip closing fence
 
     try:
-        _last_api_call = time.time()
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Please help me with: {user_query}"}
-            ],
-            temperature=0.7,
-            max_tokens=800
-        )
-        
-        result = response.choices[0].message.content
-        
-        # Cache the result
-        _tool_cache[cache_key] = (result, time.time())
-        
-        return result
+        data = json.loads(raw)
     except Exception as e:
-        # Fallback response if OpenAI call fails
-        return json.dumps({
-            "error": f"Service temporarily unavailable: {str(e)}",
-            "message": "Please try again in a moment. Our travel services are currently being updated."
-        })
+        logger.warning("⚠️  JSON parsing failed: %s – falling back.", e)
+        return (
+            origin[:3].upper(),
+            destination[:3].upper(),
+            dep_text,
+            ret_text,
+        )
+    logging.debug("🧠 GPT returned normalization: " + json.dumps(data))
 
-@tool
-def search_flights(origin: str, destination: str, departure_date: str, return_date: str = None, passengers: int = 1) -> str:
-    """
-    Search for available flights between two cities with AI-powered results.
-    
-    Args:
-        origin: Departure city or airport code
-        destination: Arrival city or airport code  
-        departure_date: Departure date (YYYY-MM-DD)
-        return_date: Return date for round trip (optional)
-        passengers: Number of passengers (default 1)
-    
-    Returns:
-        JSON string with realistic flight options and search summary
-    """
-    parameters = {
-        "origin": origin,
-        "destination": destination,
-        "departure_date": departure_date,
-        "return_date": return_date,
-        "passengers": passengers
-    }
-    
-    user_query = f"Find flights from {origin} to {destination} on {departure_date}"
-    if return_date:
-        user_query += f" returning {return_date}"
-    if passengers > 1:
-        user_query += f" for {passengers} passengers"
-    
-    return _call_openai_for_tool("search_flights", user_query, parameters)
+    for key in ("departure", "return"):
+        d_str = data.get(key)
+        if d_str and d_str.lower() != "null":
+            d = datetime.fromisoformat(d_str).date()
+            if d < today:
+                bumped = d.replace(year=today.year + 1)
+                data[key] = bumped.isoformat()
+                logging.debug(f"⏫ Bumped {key} from {d.isoformat()} → {bumped.isoformat()}")
 
-@tool
-def search_hotels(location: str, check_in: str, check_out: str, guests: int = 1, budget_range: str = "any") -> str:
-    """
-    Search for available hotels in a location with AI-powered results.
-    
-    Args:
-        location: City or area to search for hotels
-        check_in: Check-in date (YYYY-MM-DD)
-        check_out: Check-out date (YYYY-MM-DD)
-        guests: Number of guests
-        budget_range: Budget preference (budget/mid-range/luxury/any)
-    
-    Returns:
-        JSON string with realistic hotel options and search summary
-    """
-    parameters = {
-        "location": location,
-        "check_in": check_in,
-        "check_out": check_out,
-        "guests": guests,
-        "budget_range": budget_range
-    }
-    
-    user_query = f"Find hotels in {location} from {check_in} to {check_out} for {guests} guests"
-    if budget_range != "any":
-        user_query += f" in {budget_range} price range"
-    
-    return _call_openai_for_tool("search_hotels", user_query, parameters)
+    return (
+        data["origin"].upper(),
+        data["destination"].upper(),
+        data["departure"],
+        data.get("return")
+    )
 
-@tool
-def book_flight(flight_details: str, passenger_info: str) -> str:
-    """
-    Book a selected flight with AI-powered booking process.
-    
-    Args:
-        flight_details: JSON string with flight information to book
-        passenger_info: JSON string with passenger details
-    
-    Returns:
-        JSON string with booking confirmation and details
-    """
-    parameters = {
-        "flight_details": flight_details,
-        "passenger_info": passenger_info
-    }
-    
-    user_query = f"Book the flight with details: {flight_details}"
-    
-    return _call_openai_for_tool("book_flight", user_query, parameters)
 
-@tool
-def book_hotel(hotel_details: str, guest_info: str) -> str:
+def _validate_iata(code: str) -> str:
     """
-    Book a selected hotel with AI-powered booking process.
-    
-    Args:
-        hotel_details: JSON string with hotel information to book
-        guest_info: JSON string with guest details
-    
-    Returns:
-        JSON string with booking confirmation and details
+    Ensure `code` is a real 3-letter airport:
+    - if already 3 alpha chars, pass through
+    - otherwise call Amadeus /v1/reference-data/locations autocomplete
     """
-    parameters = {
-        "hotel_details": hotel_details,
-        "guest_info": guest_info
-    }
-    
-    user_query = f"Book the hotel with details: {hotel_details}"
-    
-    return _call_openai_for_tool("book_hotel", user_query, parameters)
+    code = code.strip().upper()
+    if len(code) == 3 and code.isalpha():
+        return code
 
-@tool
-def reschedule_booking(booking_reference: str, new_date: str, booking_type: str = "flight") -> str:
-    """
-    Reschedule an existing booking with AI-powered change management.
-    
-    Args:
-        booking_reference: Booking confirmation number
-        new_date: New date for the booking (YYYY-MM-DD)
-        booking_type: Type of booking (flight/hotel/car)
-    
-    Returns:
-        JSON string with reschedule options, fees, and confirmation
-    """
-    parameters = {
-        "booking_reference": booking_reference,
-        "new_date": new_date,
-        "booking_type": booking_type
-    }
-    
-    user_query = f"Reschedule {booking_type} booking {booking_reference} to {new_date}"
-    
-    return _call_openai_for_tool("reschedule_booking", user_query, parameters)
+    token = amadeus_api.get_token()
+    if not token:
+        raise ValueError("Amadeus credentials missing")
 
-@tool
-def cancel_booking(booking_reference: str, reason: str = "change of plans") -> str:
-    """
-    Cancel an existing booking and process refund with AI-powered cancellation handling.
-    
-    Args:
-        booking_reference: Booking confirmation number
-        reason: Reason for cancellation
-    
-    Returns:
-        JSON string with cancellation status, refund details, and timeline
-    """
-    parameters = {
-        "booking_reference": booking_reference,
-        "reason": reason
-    }
-    
-    user_query = f"Cancel booking {booking_reference} due to {reason}"
-    
-    return _call_openai_for_tool("cancel_booking", user_query, parameters)
+    url = f"{amadeus_api.base_url}/v1/reference-data/locations"
+    resp = requests.get(
+        url,
+        params={"keyword": code, "subType": "AIRPORT"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if resp.status_code == 200:
+        items = resp.json().get("data", [])
+        if items:
+            return items[0]["iataCode"]
 
-@tool
-def get_travel_weather(destination: str, travel_date: str) -> str:
-    """
-    Get weather forecast for travel destination with AI-powered weather insights.
-    
-    Args:
-        destination: City or location
-        travel_date: Date of travel (YYYY-MM-DD)
-    
-    Returns:
-        JSON string with weather forecast and travel recommendations
-    """
-    parameters = {
-        "destination": destination,
-        "travel_date": travel_date
-    }
-    
-    user_query = f"What's the weather forecast for {destination} on {travel_date}?"
-    
-    system_prompt = f"""You are a weather and travel advisor. Provide realistic weather information and travel tips.
+    raise ValueError(f"Unknown airport '{code}'")
 
-For {destination} on {travel_date}, provide:
-- Temperature forecast (high/low)
-- Weather conditions
-- Precipitation chance
-- What to pack recommendations
-- Activity suggestions based on weather
 
-Format as JSON:
-{{
-  "destination": "{destination}",
-  "date": "{travel_date}",
-  "temperature": {{ "high": 75, "low": 60, "unit": "F" }},
-  "conditions": "Partly cloudy",
-  "precipitation_chance": 20,
-  "recommendations": ["Pack light jacket", "Great for outdoor activities"],
-  "summary": "Pleasant weather expected for your trip"
-}}"""
 
+class AmadeusAPI:
+    """Real Amadeus API integration for flights"""
+    
+    def __init__(self):
+        self.token = None
+        self.token_expiry = 0
+        self.base_url = "https://test.api.amadeus.com"
+        self.token_url = "https://test.api.amadeus.com/v1/security/oauth2/token"
+    
+    def get_token(self) -> Optional[str]:
+        import time
+        # cache check
+        if self.token and time.time() < self.token_expiry:
+            return self.token
+
+        if not AMADEUS_CLIENT_ID or not AMADEUS_CLIENT_SECRET:
+            logger.error("Amadeus credentials not configured in ENV")
+            return None
+
+        try:
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            data = {
+                "grant_type": "client_credentials",
+                "client_id": AMADEUS_CLIENT_ID,
+                "client_secret": AMADEUS_CLIENT_SECRET
+            }
+            resp = requests.post(self.token_url, headers=headers, data=data, timeout=15)
+            logger.debug(f"Amadeus token endpoint responded {resp.status_code}: {resp.text}")
+            if resp.status_code == 200:
+                js = resp.json()
+                self.token = js["access_token"]
+                self.token_expiry = time.time() + js.get("expires_in", 1799)
+                logger.info("✅ Amadeus token obtained")
+                return self.token
+            else:
+                logger.error(f"❌ Amadeus token request failed: {resp.status_code} {resp.reason}")
+                return None
+        except Exception as e:
+            logger.exception("❌ Error getting Amadeus token")
+            return None
+    
+    def search_flights_real(
+        self,
+        origin: str,
+        destination: str,
+        departure_date: str,
+        return_date: Optional[str] = None,
+        adults: int = 1
+    ) -> Dict:
+        """
+        Search for real flights using Amadeus API.
+        1) Normalize free-form → IATA + ISO dates via GPT
+        2) Validate IATA codes via autocomplete
+        3) Call Amadeus flight-offers
+        """
+        # ── 1) normalize via GPT ─────────────────────────────────
+        logging.debug(f"🔄 Translating query: {origin}, {destination}, {departure_date}, {return_date}")
+        origin, destination, departure_date, return_date = _translate_flight_query(
+            origin, destination, departure_date, return_date
+        )
+        logging.debug(f"→ Translated to: {origin}, {destination}, {departure_date}, {return_date}")
+
+        # ── 2) validate IATA codes ───────────────────────────────
+        try:
+            origin = _validate_iata(origin)
+            destination = _validate_iata(destination)
+            logging.debug(f"✓ Valid IATA: {origin}, {destination}")
+        except ValueError as ve:
+            logging.error(f"✖ IATA validation error: {ve}")
+            return {"error": str(ve)}
+
+        # ── 3) actual Amadeus call ───────────────────────────────
+        token = self.get_token()
+        if not token:
+            return {"error": "Amadeus API not configured"}
+
+        params = {
+            "originLocationCode": origin,
+            "destinationLocationCode": destination,
+            "departureDate": departure_date,
+            "adults": adults,
+            "currencyCode": "USD",
+            "max": 10
+        }
+        if return_date:
+            params["returnDate"] = return_date
+
+        endpoint = f"{self.base_url}/v2/shopping/flight-offers"
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = requests.get(endpoint, headers=headers, params=params, timeout=15)
+
+        if resp.status_code != 200:
+            logging.error(f"❌ Amadeus {resp.status_code} {resp.reason} – {resp.text}")
+            return {"error": f"Amadeus {resp.status_code}: {resp.text}"}
+
+        return resp.json()
+            
+class BookingAPI:
+    """Real hotel search using Booking.com via RapidAPI"""
+    
+    def search_hotels_real(self, location: str, check_in: str, check_out: str,
+                           guests: int = 1, rooms: int = 1) -> Dict:
+
+
+        check_in  = _translate_flight_query("","",check_in)[2]   # reuse date normaliser
+        check_out = _translate_flight_query("","",check_out)[2]
+
+        """Search real hotels using Booking.com API"""
+        if not RAPID_API_KEY:
+            return {"error": "RapidAPI key not configured"}
+        
+        try:
+            # First, search for destination
+            dest_url = "https://booking-com15.p.rapidapi.com/api/v1/hotels/searchDestination"
+            headers = {
+                'x-rapidapi-key': RAPID_API_KEY,
+                'x-rapidapi-host': "booking-com15.p.rapidapi.com"
+            }
+            
+            dest_response = requests.get(
+                dest_url,
+                headers=headers,
+                params={"query": location},
+                timeout=10
+            )
+            
+            if dest_response.status_code != 200:
+                return {"error": f"Location search failed: {dest_response.status_code}"}
+            
+            dest_data = dest_response.json()
+            if not dest_data.get("data"):
+                return {"error": f"No locations found for: {location}"}
+            
+            dest_id = dest_data["data"][0]["dest_id"]
+            
+            # Search hotels
+            search_url = "https://booking-com15.p.rapidapi.com/api/v1/hotels/searchHotels"
+            
+            search_response = requests.get(
+                search_url,
+                headers=headers,
+                params={
+                    "dest_id": dest_id,
+                    "search_type": "CITY",
+                    "arrival_date": check_in,
+                    "departure_date": check_out,
+                    "adults": guests,
+                    "room_qty": rooms,
+                    "page_number": "1",
+                    "units": "metric",
+                    "temperature_unit": "c",
+                    "languagecode": "en-us",
+                    "currency_code": "USD"
+                },
+                timeout=15
+            )
+            
+            if search_response.status_code == 200:
+                return search_response.json()
+            else:
+                return {"error": f"Hotel search failed: {search_response.status_code}"}
+                
+        except Exception as e:
+            logger.error(f"Hotel search error: {e}")
+            return {"error": str(e)}
+
+# Initialize API clients
+amadeus_api = AmadeusAPI()
+booking_api = BookingAPI()
+
+
+def get_airport_code_intelligent(city_name: str) -> str:
+    """Use LLM to intelligently convert city to airport code"""
+    if not openai_client:
+        return city_name[:3].upper()
+    
     try:
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_query}
-            ],
-            temperature=0.7,
-            max_tokens=400
+            messages=[{
+                "role": "system",
+                "content": "You are an airport code expert. Return ONLY the 3-letter IATA code."
+            }, {
+                "role": "user",
+                "content": f"What is the main airport code for {city_name}? Reply with ONLY the 3-letter code, nothing else."
+            }],
+            max_tokens=10,
+            temperature=0
         )
-        
-        return response.choices[0].message.content
-    except Exception as e:
-        return json.dumps({
-            "error": "Weather service temporarily unavailable",
-            "message": "Please check a weather app for current conditions."
-        })
+        code = response.choices[0].message.content.strip().upper()
+        if len(code) == 3:
+            return code
+        return city_name[:3].upper()
+    except:
+        return city_name[:3].upper()
+
+def generate_booking_reference() -> str:
+    """Generate a realistic booking reference"""
+    prefix = random.choice(['AA', 'DL', 'UA', 'BA', 'LH', 'AF', 'HTL', 'BKG'])
+    numbers = ''.join(random.choices(string.digits, k=6))
+    return f"{prefix}{numbers}"
+
+def generate_mock_booking_response(*_):
+    """
+    Legacy placeholder removed: returns an empty dict so no fake totals,
+    policies or prices can slip into user-visible text.
+    """
+    return {}
 
 @tool
-def get_travel_tips(destination: str, trip_type: str = "leisure") -> str:
+def search_flights(origin: str,
+                   destination: str,
+                   departure_date: str,
+                   return_date: Optional[str] = None,
+                   passengers: int = 1) -> Dict:
     """
-    Get AI-powered travel tips and recommendations for a destination.
-    
-    Args:
-        destination: City or country to visit
-        trip_type: Type of trip (leisure/business/adventure/family)
-    
-    Returns:
-        JSON string with personalized travel tips and recommendations
+    Live flight-offer search (Amadeus).  Returns **raw API JSON** so the
+    assistant can format it any way it likes.
     """
-    parameters = {
-        "destination": destination,
-        "trip_type": trip_type
+    # normalise + validate
+    origin, destination, departure_date, return_date = _translate_flight_query(
+        origin, destination, departure_date, return_date
+    )
+    origin, destination = _validate_iata(origin), _validate_iata(destination)
+
+    return amadeus_api.search_flights_real(
+        origin, destination, departure_date, return_date, passengers
+    )
+
+
+
+@tool
+def search_hotels(location: str,
+                  check_in: str,
+                  check_out: str,
+                  guests: int = 1,
+                  rooms: int = 1) -> Dict:
+    """
+    Live hotel search (Booking.com via RapidAPI).  Returns **raw API JSON**.
+    """
+    return booking_api.search_hotels_real(
+        location, check_in, check_out, guests, rooms
+    )
+
+
+import redis
+
+REDIS_URL               = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+BOOKING_HOLD_EXPIRY_SEC = 7 * 24 * 3600          # 1 week
+
+rds = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+log = logging.getLogger(__name__)
+
+
+def _rand_ref(prefix: str) -> str:
+    return f"{prefix}{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
+
+def _store(ref: str, data: Dict, ttl: int = BOOKING_HOLD_EXPIRY_SEC) -> None:
+    rds.set(ref, json.dumps(data), ex=ttl)
+
+def _fetch(ref: str) -> Optional[Dict]:
+    val = rds.get(ref)
+    return json.loads(val) if val else None
+
+
+@tool
+def book_flight(flight_id: str,
+                passenger_name: str,
+                passenger_email: str,
+                passenger_phone: Optional[str] = None) -> Dict:
+    """
+    Hold a flight offer.  No payment, no ticket issuance.
+    """
+    ref = _rand_ref("FL")
+    payload = {
+        "booking_reference": ref,
+        "status":            "HELD_NO_PAYMENT",
+        "held_at_utc":       datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "flight_id":         flight_id,
+        "passenger": {
+            "name":  passenger_name,
+            "email": passenger_email,
+            "phone": passenger_phone
+        }
     }
-    
-    user_query = f"Give me travel tips for {trip_type} trip to {destination}"
-    
-    system_prompt = f"""You are an expert travel advisor. Provide helpful, accurate travel tips for {destination}.
+    _store(ref, payload)
+    return payload
 
-Include:
-- Best time to visit
-- Must-see attractions
-- Local customs/etiquette
-- Transportation tips
-- Food recommendations
-- Safety considerations
-- Budget tips
-- Packing suggestions specific to {trip_type} travel
 
-Format as JSON:
-{{
-  "destination": "{destination}",
-  "trip_type": "{trip_type}",
-  "best_time_to_visit": "Season/months",
-  "must_see": ["Attraction 1", "Attraction 2"],
-  "local_tips": ["Tip 1", "Tip 2"],
-  "transportation": "How to get around",
-  "food": "Local cuisine recommendations",
-  "safety": "Important safety info",
-  "summary": "Overall travel advice"
-}}"""
+@tool
+def book_hotel(hotel_id: str,
+               guest_name: str,
+               guest_email: str,
+               check_in: str,
+               check_out: str,
+               guests: int = 1) -> Dict:
+    """
+    Hold a hotel room.  No payment collected.
+    """
+    ref = _rand_ref("HT")
+    payload = {
+        "booking_reference": ref,
+        "status":            "HELD_NO_PAYMENT",
+        "held_at_utc":       datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "hotel_id":          hotel_id,
+        "check_in":          check_in,
+        "check_out":         check_out,
+        "guests":            guests,
+        "guest": {
+            "name":  guest_name,
+            "email": guest_email
+        }
+    }
+    _store(ref, payload)
+    return payload
 
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_query}
-            ],
-            temperature=0.7,
-            max_tokens=600
-        )
-        
-        return response.choices[0].message.content
-    except Exception as e:
-        return json.dumps({
-            "error": "Travel tips service temporarily unavailable",
-            "message": "Please consult a travel guide for destination information."
-        })
 
-# Export all tools for the workflow
-ALL_TOOLS = [
-    search_flights,
-    search_hotels,
-    book_flight,
-    book_hotel,
-    reschedule_booking,
-    cancel_booking,
-    get_travel_weather,
-    get_travel_tips
-] 
+
+@tool
+def get_booking_details(booking_reference: str) -> Dict:
+    """
+    Fetch whatever we have stored for this reference.
+    """
+    data = _fetch(booking_reference)
+    if not data:
+        return {"error": f"Reference {booking_reference} not found"}
+    return data
+
+
+@tool
+def cancel_booking(booking_reference: str,
+                   reason: Optional[str] = None) -> Dict:
+    """
+    Mark a stored booking as CANCELLED.
+    """
+    data = _fetch(booking_reference)
+    if not data:
+        return {"error": f"Reference {booking_reference} not found"}
+
+    data["status"]     = "CANCELLED"
+    data["cancelled"]  = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    if reason:
+        data["cancel_reason"] = reason
+    _store(booking_reference, data)          # reset TTL
+    return data
+
+
+@tool
+def reschedule_booking(booking_reference: str,
+                       new_date: str,
+                       booking_type: str = "flight") -> Dict:
+    """
+    Update departure / check-in date for the held booking.
+    """
+    data = _fetch(booking_reference)
+    if not data:
+        return {"error": f"Reference {booking_reference} not found"}
+
+    if booking_type.lower() == "flight":
+        data["new_departure"] = new_date
+    else:
+        data["new_check_in"]  = new_date
+    data["status"] = "RESCHEDULE_REQUESTED"
+    _store(booking_reference, data)
+    return data
+
+
+
+@tool
+def create_itinerary(trip_name: str,
+                     start_date: str,
+                     end_date: str,
+                     destinations: List[str]) -> Dict:
+    """
+    Just packages the request; GPT will turn this into nice prose.
+    """
+    return {
+        "trip":      trip_name,
+        "start":     start_date,
+        "end":       end_date,
+        "stops":     destinations
+    }
+
+
+def get_real_mcp_tools():
+    """
+    Import this in your workflow to expose the fixed tools.
+    """
+    return [
+        search_flights,
+        search_hotels,
+        book_flight,
+        book_hotel,
+        get_booking_details,
+        cancel_booking,
+        reschedule_booking,
+        create_itinerary,
+    ]

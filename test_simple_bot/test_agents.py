@@ -27,7 +27,7 @@ def test_openai_agents():
         agent = Agent(
             name="Assistant", 
             instructions="You are a helpful assistant",
-            model="gpt-3.5-turbo"
+            model="gpt-4o-mini"
         )
         
         print("✅ Agent created successfully")
