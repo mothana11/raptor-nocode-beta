@@ -5,7 +5,7 @@ echo "🚀 Setting up Travel Chatbot for Replit..."
 # Install Python dependencies
 echo "📦 Installing Python dependencies..."
 cd backend
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 cd ..
 
 # Install frontend dependencies and build
@@ -36,4 +36,4 @@ fi
 cd ..
 
 echo "🎉 Setup complete! Ready for Replit deployment."
-echo "📝 To start the server, run: cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000" 
+echo "📝 To start the server, run: cd backend && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000" 
