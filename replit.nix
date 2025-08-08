@@ -1,9 +1,9 @@
 { pkgs }: {
   deps = [
-    pkgs.python39
-    pkgs.python39Packages.pip
-    pkgs.python39Packages.uvicorn
-    pkgs.nodejs-18_x
+    pkgs.python312
+    pkgs.python312Packages.pip
+    pkgs.python312Packages.uvicorn
+    pkgs.nodejs-20_x
     pkgs.nodePackages.npm
     pkgs.git
     pkgs.bash
